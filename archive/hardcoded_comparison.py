@@ -58,7 +58,7 @@ def compare_files(path1: str | Path, path2: str | Path) -> None:
 if __name__ == "__main__":
     repo_root = Path(__file__).resolve().parents[1]
 
-    actual = repo_root / "tests/payload_comparison/case_001/actual_payload.txt"
-    expected = repo_root / "tests/payload_comparison/case_001/expected_payload.txt"
+    actual = repo_root / "tests/payload_comparison_samples/case_001/actual_payload.txt"
+    expected = repo_root / "tests/payload_comparison_samples/case_001/expected_payload.txt"
 
     compare_files(actual, expected)
