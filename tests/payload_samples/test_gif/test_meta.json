@@ -1,7 +1,9 @@
 {
+  "design_type": "gif",
   "gif_name": "test",
+  "callsign": "ABC123",
   "num_frames": 10,
   "num_packets": 21,
-  "creator": "",
-  "description": ""
+  "creator": "derp",
+  "description": "something"
 }
