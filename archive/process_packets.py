@@ -1,12 +1,3 @@
-""" use
-
-/usr/bin/python3 archive/process_packets.py \
-  --input tests/payload_samples/test_gif/test.gif \
-  --output tests/payload_samples/test_gif \
-  --packet-size 120 \
-  --chunk-size 100
-"""
-
 import argparse
 import json
 import re
@@ -118,7 +109,7 @@ def remove_remaining_files(output_folder_path: Path, gif_base_name: str) -> None
             print(f"Removed .bmp file: {file_path}")
 
 
-def write_metadata(output_folder_path: Path, gif_base_name: str, num_frames: int, total_packets: int) -> None:
+def write_metadata(output_folder_path: Path, gif_base_name: str, num_frames: int, total_packets: int) -> Path:
     metadata = {
         "gif_name": gif_base_name,
         "num_frames": num_frames,
@@ -130,9 +121,10 @@ def write_metadata(output_folder_path: Path, gif_base_name: str, num_frames: int
     with meta_path.open("w") as file_handle:
         json.dump(metadata, file_handle, indent=2)
     print(f"Wrote metadata to: {meta_path}")
+    return meta_path
 
 
-def process_gif(gif_path: Path, output_folder_path: Path, packet_size: int) -> None:
+def process_gif(gif_path: Path, output_folder_path: Path, packet_size: int) -> Path:
     gif_base_name = gif_path.stem
     bmp_files = gif_to_bmp(gif_path, output_folder_path)
     frame_index_pattern = re.compile(r"_frame_(\d{3})\.bmp")
@@ -145,8 +137,9 @@ def process_gif(gif_path: Path, output_folder_path: Path, packet_size: int) -> N
     master_file_path = output_folder_path / f"{gif_base_name}_processed.txt"
     total_packets = save_packets_to_files(hex_values_list, output_folder_path, gif_base_name, packet_size, master_file_path)
     total_packets -= 1
-    write_metadata(output_folder_path, gif_base_name, len(hex_values_list), total_packets)
+    metadata_path = write_metadata(output_folder_path, gif_base_name, len(hex_values_list), total_packets)
     remove_remaining_files(output_folder_path, gif_base_name)
+    return metadata_path
 
 
 def extract_packet_number(filename: str) -> int:
@@ -196,6 +189,25 @@ def iter_gif_files(input_path: Path) -> list[Path]:
     return []
 
 
+def run_processing(
+    input_path: Path,
+    output_path: Path,
+    packet_size: int = DEFAULT_PACKET_SIZE,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+) -> list[Path]:
+    output_path.mkdir(parents=True, exist_ok=True)
+    gif_files = iter_gif_files(input_path)
+    if not gif_files:
+        raise FileNotFoundError(f"No valid GIF files found at: {input_path}")
+
+    metadata_paths: list[Path] = []
+    for gif_path in gif_files:
+        metadata_paths.append(process_gif(gif_path, output_path, packet_size))
+
+    group_packets_into_chunks(output_path, chunk_size)
+    return metadata_paths
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Process GIF files into RGB565 packet files.")
     parser.add_argument("--input", required=True, help="Path to a GIF file or a directory of GIFs.")
@@ -209,16 +221,7 @@ def main() -> None:
     args = parse_args()
     input_path = Path(args.input).expanduser().resolve()
     output_path = Path(args.output).expanduser().resolve()
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    gif_files = iter_gif_files(input_path)
-    if not gif_files:
-        raise FileNotFoundError(f"No valid GIF files found at: {input_path}")
-
-    for gif_path in gif_files:
-        process_gif(gif_path, output_path, args.packet_size)
-
-    group_packets_into_chunks(output_path, args.chunk_size)
+    run_processing(input_path, output_path, args.packet_size, args.chunk_size)
 
 
 if __name__ == "__main__":

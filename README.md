@@ -32,6 +32,19 @@ curl -X POST http://127.0.0.1:8000/designs \
 curl http://127.0.0.1:8000/designs
 ```
 
+### Import design via processing pipeline
+```bash
+python scripts/import_design.py --input ./tests/payload_samples/test_gif/test.gif
+```
+
+Optional explicit output/API flags:
+```bash
+python scripts/import_design.py \
+	--input ./tests/payload_samples/test_gif \
+	--output ./tests/payload_samples/test_gif \
+	--api-url http://127.0.0.1:8000/designs
+```
+
 ### DATABASE_URL
 The app reads `DATABASE_URL` from environment variables.
 If not set, it defaults to:
