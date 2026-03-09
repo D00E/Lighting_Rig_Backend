@@ -163,3 +163,35 @@ def get_payload(callsign: str = Path(..., min_length=6, max_length=6)) -> Respon
         raise HTTPException(status_code=502, detail=str(error)) from error
 
     return Response(content=payload_bytes, media_type="text/plain")
+
+
+@router.get("/{callsign}/preview", response_class=Response)
+@router.get("/{callsign}/preview.gif", response_class=Response)
+def get_preview(callsign: str = Path(..., min_length=6, max_length=6)) -> Response:
+    query = """
+        SELECT
+            da.storage_bucket,
+            da.storage_path,
+            da.content_type
+        FROM designs d
+        JOIN design_assets da ON da.design_id = d.id
+        WHERE d.callsign = %s
+          AND da.asset_type = 'preview_gif'
+        LIMIT 1;
+    """
+
+    with get_connection() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(query, (callsign,))
+            row = cursor.fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Preview asset not found")
+
+    try:
+        preview_bytes, storage_content_type = download_bytes(row["storage_bucket"], row["storage_path"])
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    response_content_type = row.get("content_type") or storage_content_type or "image/gif"
+    return Response(content=preview_bytes, media_type=response_content_type)
