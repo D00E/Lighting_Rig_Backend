@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from psycopg import Error
+from psycopg.errors import ForeignKeyViolation, UniqueViolation
 from psycopg.rows import dict_row
 
 from app.db import get_connection
@@ -47,6 +48,13 @@ def create_design_asset(payload: DesignAssetCreate) -> dict:
                 cursor.execute(query, values)
                 created = cursor.fetchone()
             connection.commit()
+    except UniqueViolation as error:
+        raise HTTPException(
+            status_code=409,
+            detail="Asset type already exists for this design",
+        ) from error
+    except ForeignKeyViolation as error:
+        raise HTTPException(status_code=404, detail="Design not found") from error
     except Error as error:
         message = str(error).strip()
         raise HTTPException(status_code=400, detail=f"Failed to insert design asset: {message}") from error

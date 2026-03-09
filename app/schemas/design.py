@@ -28,3 +28,9 @@ class DesignOut(BaseModel):
     download_count: int
     created_at: datetime
     updated_at: datetime
+
+
+class DesignWithPreviewOut(DesignOut):
+    preview_storage_bucket: str | None = None
+    preview_storage_path: str | None = None
+    preview_content_type: str | None = None

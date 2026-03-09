@@ -58,3 +58,30 @@ def upload_bytes(storage_path: str, content: bytes, content_type: str) -> dict:
         "content_type": content_type,
         "size_bytes": len(content),
     }
+
+
+def download_bytes(storage_bucket: str, storage_path: str) -> tuple[bytes, str | None]:
+    supabase_url = get_supabase_url()
+    supabase_key = get_supabase_key()
+
+    encoded_path = urllib.parse.quote(storage_path, safe="/")
+    download_url = f"{supabase_url}/storage/v1/object/{storage_bucket}/{encoded_path}"
+
+    request = urllib.request.Request(
+        download_url,
+        method="GET",
+        headers={
+            "Authorization": f"Bearer {supabase_key}",
+            "apikey": supabase_key,
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request) as response:
+            body = response.read()
+            content_type = response.headers.get("Content-Type")
+    except urllib.error.HTTPError as error:
+        message = error.read().decode("utf-8")
+        raise RuntimeError(f"Supabase download failed ({error.code}): {message}") from error
+
+    return body, content_type
