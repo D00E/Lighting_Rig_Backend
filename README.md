@@ -42,8 +42,32 @@ Optional explicit output/API flags:
 python scripts/import_design.py \
 	--input ./tests/payload_samples/test_gif \
 	--output ./tests/payload_samples/test_gif \
-	--api-url http://127.0.0.1:8000/designs
+	--backend-base-url http://127.0.0.1:8000
 ```
+
+### Supabase storage environment
+Required for backend storage uploads:
+
+- `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY` (or `SUPABASE_SERVICE_ROLE_KEY`)
+- `SUPABASE_BUCKET=designs`
+
+Optional helper env vars:
+
+- `BACKEND_BASE_URL=http://127.0.0.1:8000`
+- `DATABASE_URL` (if not using the local default)
+
+### Apply design assets migration
+```bash
+docker exec -i lighting_postgres psql -U lighting_user -d lighting_dev < migrations/004_create_design_assets.sql
+```
+
+### End-to-end one command
+```bash
+python scripts/import_design.py --input ./tests/payload_samples/BobRoss.gif
+```
+
+This command processes the GIF, uploads `preview.gif`, `payload.txt`, and `metadata.json` to Supabase storage under `<callsign>/...`, then creates records in `designs` and `design_assets` through the backend API.
 
 ### DATABASE_URL
 The app reads `DATABASE_URL` from environment variables.
