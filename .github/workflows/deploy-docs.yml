@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - host-docs
   workflow_dispatch:
 
 permissions:
