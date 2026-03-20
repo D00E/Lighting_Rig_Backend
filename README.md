@@ -1,5 +1,20 @@
 # Embedded lighting rig, SQL and Data Processing Backend
 
+## Documentation (GitHub Pages)
+
+- Docs source: `docs/` (MkDocs)
+- Live docs URL : `https://d00e.github.io/Lighting_Rig_Backend/`
+
+This repository includes a GitHub Actions workflow at
+`.github/workflows/deploy-docs.yml` that builds and deploys docs on every push
+to `master`.
+
+One-time GitHub setup may still be required:
+
+1. Open repository settings on GitHub.
+2. Go to **Pages**.
+3. Under **Build and deployment**, set **Source** to **GitHub Actions**.
+
 ## FastAPI Designs API
 
 ### Install dependencies
