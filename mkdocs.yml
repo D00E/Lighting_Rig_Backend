@@ -1,0 +1,31 @@
+site_name: Lighting Rig Backend
+site_description: Backend service for managing and distributing lighting rig designs.
+site_author: D00E
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            heading_level: 2
+
+nav:
+  - Home: index.md
+  - Modules:
+      - modules/comparison.md
+  - Scripts:
+      - scripts/import_design.md
+      - scripts/process_packets.md

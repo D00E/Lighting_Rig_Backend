@@ -1,3 +1,23 @@
+"""End-to-end import script for ingesting a GIF design into the backend.
+
+This script drives the full pipeline from a raw GIF file (or folder of GIFs)
+through to a fully registered design record with associated storage assets:
+
+1. **Process** – calls ``archive.process_packets.run_processing`` to convert
+   each GIF into RGB565 packet files, a 16 × 16 preview GIF, and a JSON
+   metadata file.
+2. **Upload** – sends the preview GIF, encoded payload, and metadata file to
+   the backend storage endpoint.
+3. **Register** – POSTs a design record to ``/designs``, then links each
+   uploaded file as a design asset via ``/design-assets``.
+
+Typical usage::
+
+    python scripts/import_design.py --input path/to/animation.gif
+
+See ``parse_args`` for the full list of command-line options.
+"""
+
 import argparse
 import json
 import mimetypes
@@ -23,10 +43,26 @@ CALLSIGN_ALPHABET = string.ascii_uppercase + string.digits
 
 
 def generate_callsign() -> str:
+    """Generate a random six-character alphanumeric callsign.
+
+    Characters are drawn from uppercase ASCII letters and digits using the
+    ``secrets`` module, making each callsign cryptographically random.
+
+    Returns:
+        A six-character string such as ``"A3KZ2W"``.
+    """
     return "".join(secrets.choice(CALLSIGN_ALPHABET) for _ in range(CALLSIGN_LENGTH))
 
 
 def load_metadata(metadata_path: Path) -> dict:
+    """Load and parse a JSON metadata file produced by the processing step.
+
+    Args:
+        metadata_path: Path to the ``*_meta.json`` file.
+
+    Returns:
+        The parsed metadata as a dictionary.
+    """
     with metadata_path.open("r") as file_handle:
         return json.load(file_handle)
 
@@ -38,6 +74,23 @@ def build_payload(
     description: str | None,
     callsign: str | None,
 ) -> dict:
+    """Assemble the JSON payload for the ``POST /designs`` endpoint.
+
+    Values supplied as arguments take precedence over those read from the
+    metadata file, allowing the caller to override fields at import time.
+
+    Args:
+        metadata: Parsed content of the ``*_meta.json`` file.
+        design_type: Design type string (e.g. ``"gif"``).
+        creator: Optional creator name; falls back to the metadata value.
+        description: Optional description; falls back to the metadata value.
+        callsign: Optional fixed callsign; a random one is generated if
+            ``None``.
+
+    Returns:
+        A dictionary suitable for serialising to JSON and posting to
+        ``/designs``.
+    """
     payload = {
         "design_type": design_type,
         "gif_name": metadata["gif_name"],
@@ -51,6 +104,15 @@ def build_payload(
 
 
 def post_json(url: str, payload: dict) -> tuple[int, str]:
+    """Send a JSON POST request using only the standard library.
+
+    Args:
+        url: The full URL to POST to.
+        payload: A JSON-serialisable dictionary to send as the request body.
+
+    Returns:
+        A two-tuple of ``(http_status_code, response_body_text)``.
+    """
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         url,
@@ -69,6 +131,15 @@ def post_json(url: str, payload: dict) -> tuple[int, str]:
 
 
 def post_design(api_url: str, payload: dict) -> tuple[int, str]:
+    """POST a design creation payload to the ``/designs`` endpoint.
+
+    Args:
+        api_url: Full URL of the ``/designs`` endpoint.
+        payload: Design fields as produced by :func:`build_payload`.
+
+    Returns:
+        A two-tuple of ``(http_status_code, response_body_text)``.
+    """
     return post_json(api_url, payload)
 
 
@@ -79,6 +150,22 @@ def upload_file_via_backend(
     file_path: Path,
     content_type: str,
 ) -> tuple[int, str]:
+    """Upload a file to the backend storage endpoint.
+
+    Constructs a ``POST /storage/upload`` request, passing the callsign,
+    remote filename, and content type as query parameters and the raw file
+    bytes as the request body.
+
+    Args:
+        backend_base_url: Base URL of the backend (e.g. ``http://127.0.0.1:8000``).
+        callsign: The design callsign used to namespace the upload.
+        filename: Remote filename to store the asset under.
+        file_path: Local path of the file to upload.
+        content_type: MIME type of the file.
+
+    Returns:
+        A two-tuple of ``(http_status_code, response_body_text)``.
+    """
     query = urllib.parse.urlencode(
         {
             "callsign": callsign,
@@ -105,15 +192,41 @@ def upload_file_via_backend(
 
 
 def post_design_asset(api_url: str, payload: dict) -> tuple[int, str]:
+    """POST a design asset record to the ``/design-assets`` endpoint.
+
+    Args:
+        api_url: Full URL of the ``/design-assets`` endpoint.
+        payload: Asset fields including ``design_id``, ``asset_type``, and
+            storage metadata.
+
+    Returns:
+        A two-tuple of ``(http_status_code, response_body_text)``.
+    """
     return post_json(api_url, payload)
 
 
 def create_design_record(designs_url: str, payload: dict) -> tuple[int, str, dict]:
+    """Post a design payload and return the status, response, and echoed payload.
+
+    Args:
+        designs_url: Full URL of the ``/designs`` endpoint.
+        payload: Design fields to register.
+
+    Returns:
+        A three-tuple of ``(http_status_code, response_body_text, payload)``.
+    """
     status, response = post_design(designs_url, payload)
     return status, response, payload
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for the import script.
+
+    Returns:
+        A populated :class:`argparse.Namespace` with fields ``input``,
+        ``output``, ``backend_base_url``, ``packet_size``, ``chunk_size``,
+        ``design_type``, ``callsign``, ``creator``, and ``description``.
+    """
     parser = argparse.ArgumentParser(description="Process design input and ingest metadata via backend API.")
     parser.add_argument("--input", required=True, help="Path to a GIF file or a folder containing GIF files.")
     parser.add_argument("--output", help="Output folder for processed files. Defaults to input folder.")
