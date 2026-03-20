@@ -2,9 +2,9 @@
 
 ## Documentation (GitHub Pages)
 
-- Docs source: `docs/` (MkDocs)
-- Live docs URL : `https://d00e.github.io/Lighting_Rig_Backend/`
-
+- [Live docs](https://d00e.github.io/Lighting_Rig_Backend/)
+  (`https://d00e.github.io/Lighting_Rig_Backend/`)
+  
 This repository includes a GitHub Actions workflow at
 `.github/workflows/deploy-docs.yml` that builds and deploys docs on every push
 to `master`.
@@ -37,8 +37,8 @@ curl -X POST http://127.0.0.1:8000/designs \
 		"callsign": "ABC123",
 		"num_frames": 10,
 		"num_packets": 21,
-		"creator": "derp",
-		"description": "something"
+		"creator": "Susan Rogers",
+		"description": "Purplium Rainium"
 	}'
 ```
 
