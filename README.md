@@ -49,7 +49,7 @@ python scripts/import_design.py \
 Required for backend storage uploads:
 
 - `SUPABASE_URL`
-- `SUPABASE_SECRET_KEY` (or `SUPABASE_SERVICE_ROLE_KEY`)
+- Supabase service-role credentials via your local environment
 - `SUPABASE_BUCKET=designs`
 
 Optional helper env vars:
@@ -73,7 +73,7 @@ This command processes the GIF, uploads `preview.gif`, `payload.txt`, and `metad
 The app reads `DATABASE_URL` from environment variables.
 If not set, it defaults to:
 
-`postgresql://lighting_user:lighting_password@localhost:5433/lighting_dev`
+`<set in environment>`
 
 ### Existing Docker volume note
 `/docker-entrypoint-initdb.d` SQL files run only on first initialisation of the Postgres data volume.

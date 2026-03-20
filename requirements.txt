@@ -3,3 +3,6 @@ uvicorn
 psycopg[binary]
 Pillow
 python-dotenv
+mkdocs
+mkdocs-material
+mkdocstrings[python]
