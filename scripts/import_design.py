@@ -400,10 +400,10 @@ def process_designs(args: argparse.Namespace) -> None:
 
             gif_name = payload["gif_name"]
             callsign = payload["callsign"]
-            payload_txt_path = metadata_path.parent / f"{gif_name}_processed.txt"
+            gif_path = input_path if input_path.is_file() else input_path / f"{gif_name}.gif"
 
-            if not payload_txt_path.exists():
-                print(f"FAILED: missing payload file at {payload_txt_path}")
+            if not gif_path.exists():
+                print(f"FAILED: source GIF not found at {gif_path}")
                 raise SystemExit(1)
 
             print(f"[3/4] Posting design '{payload['gif_name']}' with callsign {payload['callsign']}...")
@@ -422,10 +422,9 @@ def process_designs(args: argparse.Namespace) -> None:
             created_design = json.loads(response)
             design_id = created_design["id"]
 
-            print(f"[4/4] Uploading assets for '{gif_name}'...")
+            print(f"[4/4] Uploading GIF for '{gif_name}'...")
             uploads = [
-                ("encoded_payload", "payload.txt", payload_txt_path, "text/plain"),
-                ("metadata_file", "metadata.json", metadata_path, "application/json"),
+                ("preview_gif", f"{gif_name}.gif", gif_path, "image/gif"),
             ]
 
             for asset_type, remote_name, local_path, forced_content_type in uploads:
