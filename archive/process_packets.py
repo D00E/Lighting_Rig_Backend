@@ -167,7 +167,7 @@ def save_packets_to_files(
         packet_file_path = output_folder_path / f"{gif_base_name}_packet_{packet_index:0{PACKET_FILE_DIGITS}d}.txt"
         packet_file_path.write_text(packet)
         with master_file_path.open("a") as master_file:
-            master_file.write(packet_data)
+            master_file.write(packet)
         print(f"Saved packet {packet_index + 1} to: {packet_file_path}")
         packet_index += 1
 
