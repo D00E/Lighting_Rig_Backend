@@ -24,6 +24,7 @@ import argparse
 import json
 import os
 import secrets
+import shutil
 import string
 import subprocess
 import sys
@@ -401,9 +402,14 @@ def process_designs(args: argparse.Namespace) -> None:
             gif_name = payload["gif_name"]
             callsign = payload["callsign"]
             gif_path = input_path if input_path.is_file() else input_path / f"{gif_name}.gif"
+            payload_txt_path = metadata_path.parent / f"{gif_name}_processed.txt"
 
             if not gif_path.exists():
                 print(f"FAILED: source GIF not found at {gif_path}")
+                raise SystemExit(1)
+
+            if not payload_txt_path.exists():
+                print(f"FAILED: missing payload file at {payload_txt_path}")
                 raise SystemExit(1)
 
             print(f"[3/4] Posting design '{payload['gif_name']}' with callsign {payload['callsign']}...")
@@ -422,9 +428,10 @@ def process_designs(args: argparse.Namespace) -> None:
             created_design = json.loads(response)
             design_id = created_design["id"]
 
-            print(f"[4/4] Uploading GIF for '{gif_name}'...")
+            print(f"[4/4] Uploading assets for '{gif_name}'...")
             uploads = [
                 ("preview_gif", f"{gif_name}.gif", gif_path, "image/gif"),
+                ("encoded_payload", f"{gif_name}_processed.txt", payload_txt_path, "text/plain"),
             ]
 
             for asset_type, remote_name, local_path, forced_content_type in uploads:
@@ -464,6 +471,21 @@ def process_designs(args: argparse.Namespace) -> None:
             print(f"SUCCESS ({status}): {response}")
             print(f"Stored output path: {output_path}")
             print(f"Final callsign used: {used_payload['callsign']}")
+
+        print("Cleaning up generated files...")
+        for metadata_path in metadata_paths:
+            gif_name = metadata_path.stem.removesuffix("_meta")
+            for path in [
+                metadata_path,
+                metadata_path.parent / f"{gif_name}_processed.txt",
+            ]:
+                if path.exists():
+                    path.unlink()
+                    print(f"Deleted: {path}")
+        for chunk_dir in sorted(output_path.glob("chunk*")):
+            if chunk_dir.is_dir():
+                shutil.rmtree(chunk_dir)
+                print(f"Deleted: {chunk_dir}")
     finally:
         if started_backend_process is not None:
             print("Stopping auto-started backend...")
