@@ -8,7 +8,7 @@ This module drives the data-preparation stage of the pipeline:
    CRC32 checksum header.
 4. Packets are written to individual ``.txt`` files and then grouped into
    chunk sub-folders.
-5. A ``*_meta.json`` file and a preview GIF are produced alongside the packets.
+5. A ``*_meta.json`` file is produced alongside the packets.
 
 The module can be run directly or called programmatically via
 :func:`run_processing`.
@@ -29,8 +29,6 @@ PACKET_FILE_DIGITS = 5
 FRAME_FILE_DIGITS = 3
 DEFAULT_PACKET_SIZE = 120
 DEFAULT_CHUNK_SIZE = 100
-PREVIEW_SCALE = 16
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def calculate_crc32(data: str) -> int:
@@ -85,24 +83,15 @@ def create_packet(packet_number: int, packet_data: str, total_packets: int) -> s
 def gif_to_bmp(input_gif: Path, output_folder: Path) -> list[Path]:
     """Extract and resize each frame of a GIF, saving them as BMP files.
 
-    Also saves two preview GIFs to disk:
-
-    - A 16 × 16 preview alongside the packet files.
-    - A sharp upscaled preview (256 × 256) at the project root for visual
-      inspection.
-
     Args:
         input_gif: Path to the source GIF file.
-        output_folder: Directory in which to write the BMP frame files and the
-            16 × 16 preview GIF.
+                output_folder: Directory in which to write the BMP frame files.
 
     Returns:
         An ordered list of paths to the generated BMP files.
     """
     gif = Image.open(input_gif)
     gif_base_name = input_gif.stem
-    resized_frames: list[Image.Image] = []
-    durations: list[int] = []
     bmp_paths: list[Path] = []
 
     for index, frame in enumerate(ImageSequence.Iterator(gif)):
@@ -112,36 +101,6 @@ def gif_to_bmp(input_gif: Path, output_folder: Path) -> list[Path]:
         bmp_path = output_folder / f"{gif_base_name}_frame_{index:0{FRAME_FILE_DIGITS}d}.bmp"
         resized_frame.save(bmp_path, "BMP")
         bmp_paths.append(bmp_path)
-        resized_frames.append(resized_frame)
-        durations.append(delay)
-
-    if resized_frames:
-        small_gif_path = output_folder / f"{gif_base_name}_16x16.gif"
-        first_frame, *other_frames = resized_frames
-        first_frame.save(
-            small_gif_path,
-            save_all=True,
-            append_images=other_frames,
-            loop=0,
-            duration=durations or None,
-            disposal=2,
-        )
-        print(f"Saved 16x16 GIF preview to: {small_gif_path}")
-
-        # Create an upscaled preview with hard pixel edges for visual inspection.
-        preview_size = (FRAME_SIZE[0] * PREVIEW_SCALE, FRAME_SIZE[1] * PREVIEW_SCALE)
-        sharp_frames = [frame.resize(preview_size, Image.Resampling.NEAREST) for frame in resized_frames]
-        root_preview_path = PROJECT_ROOT / f"{gif_base_name}_preview_sharp.gif"
-        sharp_first_frame, *sharp_other_frames = sharp_frames
-        sharp_first_frame.save(
-            root_preview_path,
-            save_all=True,
-            append_images=sharp_other_frames,
-            loop=0,
-            duration=durations or None,
-            disposal=2,
-        )
-        print(f"Saved root sharp preview to: {root_preview_path}")
 
     return bmp_paths
 

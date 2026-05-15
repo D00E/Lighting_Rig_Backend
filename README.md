@@ -44,15 +44,22 @@ curl http://127.0.0.1:8000/designs
 
 ### Import design via processing pipeline
 ```bash
-python scripts/import_design.py --input ./tests/payload_samples/test_gif/test.gif
+python scripts/import_design.py
 ```
+
+The script defaults to scanning `./drop_gifs_here` for one or many GIF files.
+Place files there, then run the command.
+
+If `--backend-base-url` is localhost (default), the script auto-starts the
+backend when needed and auto-stops it after the import finishes.
 
 Optional explicit output/API flags:
 ```bash
 python scripts/import_design.py \
 	--input ./tests/payload_samples/test_gif \
 	--output ./tests/payload_samples/test_gif \
-	--backend-base-url http://127.0.0.1:8000
+	--backend-base-url http://127.0.0.1:8000 \
+	--backend-start-timeout 30
 ```
 
 ### Supabase storage environment
@@ -74,10 +81,13 @@ docker exec -i lighting_postgres psql -U lighting_user -d lighting_dev < migrati
 
 ### End-to-end one command
 ```bash
-python scripts/import_design.py --input ./tests/payload_samples/BobRoss.gif
+python scripts/import_design.py
 ```
 
-This command processes the GIF, uploads `preview.gif`, `payload.txt`, and `metadata.json` to Supabase storage under `<callsign>/...`, then creates records in `designs` and `design_assets` through the backend API.
+This command processes every GIF in `./drop_gifs_here`, inserts a row in
+`designs` first, uploads `payload.txt` and `metadata.json` to Supabase storage
+under `<callsign>/...`, then creates linked records in `design_assets`
+through the backend API.
 
 ### DATABASE_URL
 The app reads `DATABASE_URL` from environment variables.

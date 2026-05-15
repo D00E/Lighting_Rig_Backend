@@ -1,30 +1,33 @@
-"""End-to-end import script for ingesting a GIF design into the backend.
+"""End-to-end import script for ingesting GIF designs into the backend.
 
 This script drives the full pipeline from a raw GIF file (or folder of GIFs)
 through to a fully registered design record with associated storage assets:
 
 1. **Process** – calls ``archive.process_packets.run_processing`` to convert
-   each GIF into RGB565 packet files, a 16 × 16 preview GIF, and a JSON
-   metadata file.
-2. **Upload** – sends the preview GIF, encoded payload, and metadata file to
-   the backend storage endpoint.
-3. **Register** – POSTs a design record to ``/designs``, then links each
-   uploaded file as a design asset via ``/design-assets``.
+    each GIF into RGB565 packet files and a JSON metadata file.
+2. **Register** – POSTs a design record to ``/designs``.
+3. **Upload** – sends the encoded payload and metadata file to the backend
+    storage endpoint, then links each uploaded file as a design asset via
+    ``/design-assets``.
 
 Typical usage::
 
-    python scripts/import_design.py --input path/to/animation.gif
+    python scripts/import_design.py
+
+By default, the script processes every GIF in ``drop_gifs_here`` at the
+repository root.
 
 See ``parse_args`` for the full list of command-line options.
 """
 
 import argparse
 import json
-import mimetypes
 import os
 import secrets
 import string
+import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -38,8 +41,76 @@ from archive.process_packets import DEFAULT_CHUNK_SIZE, DEFAULT_PACKET_SIZE, run
 
 
 DEFAULT_BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "http://127.0.0.1:8000")
+DEFAULT_INPUT_DIR = PROJECT_ROOT / "drop_gifs_here"
 CALLSIGN_LENGTH = 6
 CALLSIGN_ALPHABET = string.ascii_uppercase + string.digits
+
+
+def health_url_for_base(backend_base_url: str) -> str:
+    """Build the health-check URL for a backend base URL."""
+    return f"{backend_base_url.rstrip('/')}/health"
+
+
+def is_local_backend_url(backend_base_url: str) -> bool:
+    """Return True when the backend URL points at localhost."""
+    parsed = urllib.parse.urlparse(backend_base_url)
+    return parsed.scheme in {"http", ""} and (parsed.hostname in {"127.0.0.1", "localhost"})
+
+
+def check_backend_health(backend_base_url: str, timeout_seconds: float = 1.5) -> bool:
+    """Check whether the backend health endpoint is reachable and healthy."""
+    request = urllib.request.Request(health_url_for_base(backend_base_url), method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            return response.status == 200
+    except (urllib.error.URLError, urllib.error.HTTPError):
+        return False
+
+
+def start_local_backend_process(backend_base_url: str) -> subprocess.Popen:
+    """Start a local uvicorn backend process for the configured URL."""
+    parsed = urllib.parse.urlparse(backend_base_url)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 8000
+    command = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        host,
+        "--port",
+        str(port),
+    ]
+    return subprocess.Popen(
+        command,
+        cwd=str(PROJECT_ROOT),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def wait_for_backend_ready(backend_base_url: str, timeout_seconds: int) -> bool:
+    """Wait for backend health checks to pass within a timeout window."""
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if check_backend_health(backend_base_url):
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def stop_backend_process(process: subprocess.Popen | None) -> None:
+    """Terminate a backend process started by this script."""
+    if process is None or process.poll() is not None:
+        return
+
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
 
 
 def generate_callsign() -> str:
@@ -128,6 +199,8 @@ def post_json(url: str, payload: dict) -> tuple[int, str]:
     except urllib.error.HTTPError as error:
         response_body = error.read().decode("utf-8")
         return error.code, response_body
+    except urllib.error.URLError as error:
+        raise RuntimeError(f"Failed to connect to backend endpoint: {url} ({error.reason})") from error
 
 
 def post_design(api_url: str, payload: dict) -> tuple[int, str]:
@@ -189,6 +262,8 @@ def upload_file_via_backend(
     except urllib.error.HTTPError as error:
         response_body = error.read().decode("utf-8")
         return error.code, response_body
+    except urllib.error.URLError as error:
+        raise RuntimeError(f"Failed to connect to storage upload endpoint: {upload_url} ({error.reason})") from error
 
 
 def post_design_asset(api_url: str, payload: dict) -> tuple[int, str]:
@@ -227,8 +302,12 @@ def parse_args() -> argparse.Namespace:
         ``output``, ``backend_base_url``, ``packet_size``, ``chunk_size``,
         ``design_type``, ``callsign``, ``creator``, and ``description``.
     """
-    parser = argparse.ArgumentParser(description="Process design input and ingest metadata via backend API.")
-    parser.add_argument("--input", required=True, help="Path to a GIF file or a folder containing GIF files.")
+    parser = argparse.ArgumentParser(description="Process GIF designs and ingest metadata via backend API.")
+    parser.add_argument(
+        "--input",
+        default=str(DEFAULT_INPUT_DIR),
+        help="Path to a GIF file or folder. Defaults to the repository's drop_gifs_here folder.",
+    )
     parser.add_argument("--output", help="Output folder for processed files. Defaults to input folder.")
     parser.add_argument("--backend-base-url", default=DEFAULT_BACKEND_BASE_URL, help="Backend base URL.")
     parser.add_argument("--packet-size", type=int, default=DEFAULT_PACKET_SIZE)
@@ -237,111 +316,164 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--callsign", help="Optional fixed callsign. If omitted, one is generated.")
     parser.add_argument("--creator", help="Optional creator override.")
     parser.add_argument("--description", help="Optional description override.")
+    parser.add_argument(
+        "--backend-start-timeout",
+        type=int,
+        default=20,
+        help="Seconds to wait for an auto-started backend to become healthy.",
+    )
+    parser.add_argument(
+        "--no-auto-start-backend",
+        action="store_true",
+        help="Disable automatic startup of a local backend when it is not running.",
+    )
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
+def process_designs(args: argparse.Namespace) -> None:
+    """Process one or more GIFs and register them with storage and SQL records.
+
+    The default input folder is ``drop_gifs_here`` at the repository root.
+    For each processed GIF, the design row is inserted into SQL first, then
+    assets are uploaded and linked as design assets.
+    """
     input_path = Path(args.input).expanduser().resolve()
     output_path = Path(args.output).expanduser().resolve() if args.output else (
         input_path.parent if input_path.is_file() else input_path
     )
 
+    if not input_path.exists():
+        print(f"FAILED: input path does not exist: {input_path}")
+        raise SystemExit(1)
+
     backend_base_url = args.backend_base_url.rstrip("/")
     designs_url = f"{backend_base_url}/designs"
     design_assets_url = f"{backend_base_url}/design-assets"
 
-    print(f"[1/3] Processing input: {input_path}")
-    metadata_paths = run_processing(
-        input_path=input_path,
-        output_path=output_path,
-        packet_size=args.packet_size,
-        chunk_size=args.chunk_size,
-    )
-
-    print(f"[2/4] Found {len(metadata_paths)} metadata file(s)")
-    for metadata_path in metadata_paths:
-        metadata = load_metadata(metadata_path)
-        payload = build_payload(
-            metadata=metadata,
-            design_type=args.design_type,
-            creator=args.creator,
-            description=args.description,
-            callsign=args.callsign,
-        )
-
-        payload["description"] = payload.get("description") or ""
-        payload["description"] = (
-            f"{payload['description']} | output_path={output_path}" if payload["description"] else f"output_path={output_path}"
-        )
-
-        gif_name = payload["gif_name"]
-        callsign = payload["callsign"]
-        preview_path = metadata_path.parent / f"{gif_name}_16x16.gif"
-        payload_txt_path = metadata_path.parent / f"{gif_name}_processed.txt"
-
-        if not preview_path.exists():
-            print(f"FAILED: missing preview file at {preview_path}")
-            raise SystemExit(1)
-
-        if not payload_txt_path.exists():
-            print(f"FAILED: missing payload file at {payload_txt_path}")
-            raise SystemExit(1)
-
-        print(f"[3/4] Uploading assets for '{gif_name}'...")
-        uploads = [
-            ("preview_gif", "preview.gif", preview_path, "image/gif"),
-            ("encoded_payload", "payload.txt", payload_txt_path, "text/plain"),
-            ("metadata_file", "metadata.json", metadata_path, "application/json"),
-        ]
-
-        uploaded_assets: list[dict] = []
-        for asset_type, remote_name, local_path, forced_content_type in uploads:
-            content_type = forced_content_type or (mimetypes.guess_type(local_path.name)[0] or "application/octet-stream")
-            status, response = upload_file_via_backend(
-                backend_base_url=backend_base_url,
-                callsign=callsign,
-                filename=remote_name,
-                file_path=local_path,
-                content_type=content_type,
+    started_backend_process: subprocess.Popen | None = None
+    if check_backend_health(backend_base_url):
+        print(f"Backend reachable at {backend_base_url}")
+    elif args.no_auto_start_backend:
+        print(f"FAILED: backend is not reachable at {backend_base_url}")
+        print("Tip: start backend with: uvicorn app.main:app --reload")
+        raise SystemExit(1)
+    elif not is_local_backend_url(backend_base_url):
+        print(f"FAILED: backend is not reachable at {backend_base_url}")
+        print("Auto-start is only supported for localhost URLs. Start your backend manually and retry.")
+        raise SystemExit(1)
+    else:
+        print(f"Backend not running at {backend_base_url}. Starting local backend...")
+        started_backend_process = start_local_backend_process(backend_base_url)
+        if not wait_for_backend_ready(backend_base_url, args.backend_start_timeout):
+            stop_backend_process(started_backend_process)
+            print(
+                f"FAILED: backend did not become healthy within {args.backend_start_timeout} seconds at "
+                f"{health_url_for_base(backend_base_url)}"
             )
-            if status >= 400:
-                print(f"FAILED upload ({status}) {asset_type}: {response}")
-                raise SystemExit(1)
-
-            uploaded = json.loads(response)
-            uploaded["asset_type"] = asset_type
-            uploaded_assets.append(uploaded)
-
-        print(f"[4/4] Posting design '{payload['gif_name']}' with callsign {payload['callsign']}...")
-        status, response, used_payload = create_design_record(designs_url, payload)
-
-        if status >= 400:
-            if "duplicate key" in response.lower() or "unique" in response.lower():
-                print("FAILED: callsign collision after upload. Re-run or pass --callsign.")
-            print(f"FAILED ({status}): {response}")
             raise SystemExit(1)
+        print("Local backend started and healthy.")
 
-        created_design = json.loads(response)
-        design_id = created_design["id"]
+    try:
+        print(f"[1/4] Processing input: {input_path}")
+        metadata_paths = run_processing(
+            input_path=input_path,
+            output_path=output_path,
+            packet_size=args.packet_size,
+            chunk_size=args.chunk_size,
+        )
 
-        for uploaded in uploaded_assets:
-            asset_payload = {
-                "design_id": design_id,
-                "asset_type": uploaded["asset_type"],
-                "storage_bucket": uploaded["storage_bucket"],
-                "storage_path": uploaded["storage_path"],
-                "content_type": uploaded.get("content_type"),
-                "size_bytes": uploaded.get("size_bytes"),
-            }
-            asset_status, asset_response = post_design_asset(design_assets_url, asset_payload)
-            if asset_status >= 400:
-                print(f"FAILED asset save ({asset_status}): {asset_response}")
+        print(f"[2/4] Found {len(metadata_paths)} metadata file(s)")
+        for metadata_path in metadata_paths:
+            metadata = load_metadata(metadata_path)
+            payload = build_payload(
+                metadata=metadata,
+                design_type=args.design_type,
+                creator=args.creator,
+                description=args.description,
+                callsign=args.callsign,
+            )
+
+            payload["description"] = payload.get("description") or ""
+            payload["description"] = (
+                f"{payload['description']} | output_path={output_path}" if payload["description"] else f"output_path={output_path}"
+            )
+
+            gif_name = payload["gif_name"]
+            callsign = payload["callsign"]
+            payload_txt_path = metadata_path.parent / f"{gif_name}_processed.txt"
+
+            if not payload_txt_path.exists():
+                print(f"FAILED: missing payload file at {payload_txt_path}")
                 raise SystemExit(1)
 
-        print(f"SUCCESS ({status}): {response}")
-        print(f"Stored output path: {output_path}")
-        print(f"Final callsign used: {used_payload['callsign']}")
+            print(f"[3/4] Posting design '{payload['gif_name']}' with callsign {payload['callsign']}...")
+            try:
+                status, response, used_payload = create_design_record(designs_url, payload)
+            except RuntimeError as error:
+                print(f"FAILED: {error}")
+                raise SystemExit(1) from error
+
+            if status >= 400:
+                if "duplicate key" in response.lower() or "unique" in response.lower():
+                    print("FAILED: callsign collision before upload. Re-run or pass --callsign.")
+                print(f"FAILED ({status}): {response}")
+                raise SystemExit(1)
+
+            created_design = json.loads(response)
+            design_id = created_design["id"]
+
+            print(f"[4/4] Uploading assets for '{gif_name}'...")
+            uploads = [
+                ("encoded_payload", "payload.txt", payload_txt_path, "text/plain"),
+                ("metadata_file", "metadata.json", metadata_path, "application/json"),
+            ]
+
+            for asset_type, remote_name, local_path, forced_content_type in uploads:
+                try:
+                    upload_status, upload_response = upload_file_via_backend(
+                        backend_base_url=backend_base_url,
+                        callsign=callsign,
+                        filename=remote_name,
+                        file_path=local_path,
+                        content_type=forced_content_type,
+                    )
+                except RuntimeError as error:
+                    print(f"FAILED: {error}")
+                    raise SystemExit(1) from error
+                if upload_status >= 400:
+                    print(f"FAILED upload ({upload_status}) {asset_type}: {upload_response}")
+                    raise SystemExit(1)
+
+                uploaded = json.loads(upload_response)
+                asset_payload = {
+                    "design_id": design_id,
+                    "asset_type": asset_type,
+                    "storage_bucket": uploaded["storage_bucket"],
+                    "storage_path": uploaded["storage_path"],
+                    "content_type": uploaded.get("content_type"),
+                    "size_bytes": uploaded.get("size_bytes"),
+                }
+                try:
+                    asset_status, asset_response = post_design_asset(design_assets_url, asset_payload)
+                except RuntimeError as error:
+                    print(f"FAILED: {error}")
+                    raise SystemExit(1) from error
+                if asset_status >= 400:
+                    print(f"FAILED asset save ({asset_status}): {asset_response}")
+                    raise SystemExit(1)
+
+            print(f"SUCCESS ({status}): {response}")
+            print(f"Stored output path: {output_path}")
+            print(f"Final callsign used: {used_payload['callsign']}")
+    finally:
+        if started_backend_process is not None:
+            print("Stopping auto-started backend...")
+            stop_backend_process(started_backend_process)
+
+
+def main() -> None:
+    args = parse_args()
+    process_designs(args)
 
 
 if __name__ == "__main__":
