@@ -22,6 +22,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import psycopg
+from dotenv import load_dotenv
+
+load_dotenv(PROJECT_ROOT / ".env")
 
 from app.db import get_connection, get_database_url
 from app.services.storage import get_supabase_url, get_supabase_key, get_supabase_bucket

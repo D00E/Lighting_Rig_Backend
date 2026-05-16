@@ -1,9 +1,9 @@
-"""GIF processing pipeline: converts GIF animations into RGB565 packet files.
+"""GIF processing pipeline: converts GIF animations into RGB888 packet files.
 
 This module drives the data-preparation stage of the pipeline:
 
 1. Each GIF frame is resized to 16 × 16 pixels and saved as a BMP.
-2. BMP pixel data is converted to RGB565 hex values.
+2. BMP pixel data is converted to RGB888 hex values (6-character RRGGBB format).
 3. Hex values are concatenated and split into fixed-size packets, each with a
    CRC32 checksum header.
 4. Packets are written to individual ``.txt`` files and then grouped into
@@ -65,8 +65,9 @@ def generate_packet_header(packet_number: int, packet_data: str) -> str:
 def create_packet(packet_number: int, packet_data: str, total_packets: int) -> str:
     """Assemble a complete packet string including header, data, and terminator.
 
-    The final packet in a transmission is suffixed with ``"?"`` to signal the
-    end of the stream to the receiver.
+    The packet is terminated with a single exclamation mark. Older behavior
+    appended a ``"?"`` to the final packet; that terminator has been removed
+    to avoid an extraneous character at the end of the output file.
 
     Args:
         packet_number: Zero-based index of the packet.
@@ -76,8 +77,7 @@ def create_packet(packet_number: int, packet_data: str, total_packets: int) -> s
     Returns:
         The fully assembled packet string.
     """
-    transmission_end = "?" if packet_number == total_packets - 1 else ""
-    return f"{generate_packet_header(packet_number, packet_data)}{packet_data}!{transmission_end}"
+    return f"{generate_packet_header(packet_number, packet_data)}{packet_data}!"
 
 
 def gif_to_bmp(input_gif: Path, output_folder: Path) -> list[Path]:
@@ -106,26 +106,22 @@ def gif_to_bmp(input_gif: Path, output_folder: Path) -> list[Path]:
 
 
 def bmp_to_hex_values(input_bmp: Path) -> list[str]:
-    """Convert a BMP frame to a list of RGB565 hex strings.
+    """Convert a BMP frame to a list of RGB888 hex strings.
 
-    Each pixel is encoded as a four-character uppercase hex string representing
-    a 16-bit RGB565 value (5 bits red, 6 bits green, 5 bits blue).
+    Each pixel is encoded as a six-character uppercase hex string in RRGGBB
+    format (2 hex digits each for red, green, and blue).
 
     Args:
         input_bmp: Path to the BMP file to convert.
 
     Returns:
-        A list of four-character hex strings, one per pixel, in row-major
+        A list of six-character hex strings, one per pixel, in row-major
         order.
     """
     bmp = Image.open(input_bmp).convert("RGB").resize(FRAME_SIZE, Image.Resampling.NEAREST)
     hex_values: list[str] = []
     for r, g, b in bmp.getdata():
-        r5 = int((r * 31) / 255)
-        g6 = int((g * 63) / 255)
-        b5 = int((b * 31) / 255)
-        rgb565 = (r5 << 11) | (g6 << 5) | b5
-        hex_values.append(f"{rgb565:04X}")
+        hex_values.append(f"{r:02X}{g:02X}{b:02X}")
     return hex_values
 
 
@@ -144,8 +140,8 @@ def save_packets_to_files(
     master ``*_processed.txt`` file.
 
     Args:
-        hex_values_list: A list where each element is the list of hex strings
-            for one GIF frame.
+        hex_values_list: A list where each element is the list of RGB888 hex
+            strings for one GIF frame.
         output_folder_path: Directory in which to write the packet files.
         gif_base_name: Base name of the source GIF (used in file naming).
         packet_size: Number of hex values per packet.
@@ -338,7 +334,7 @@ def run_processing(
         input_path: Path to a single GIF file or a directory containing GIFs.
         output_path: Directory in which to write all processed outputs.
             Created automatically if it does not exist.
-        packet_size: Number of RGB565 hex values per packet.
+        packet_size: Number of RGB888 hex values per packet.
             Defaults to :data:`DEFAULT_PACKET_SIZE`.
         chunk_size: Number of packet files per chunk sub-folder.
             Defaults to :data:`DEFAULT_CHUNK_SIZE`.
