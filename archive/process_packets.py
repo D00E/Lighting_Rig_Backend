@@ -27,7 +27,8 @@ from PIL import Image, ImageSequence
 FRAME_SIZE = (16, 16)
 PACKET_FILE_DIGITS = 5
 FRAME_FILE_DIGITS = 3
-DEFAULT_PACKET_SIZE = 120
+DEFAULT_PACKET_SIZE = 200  # hex values per packet (200 × 6 bytes = 1200 bytes payload)
+MAX_PACKET_DATA_SIZE = 1400  # bytes; 4-digit length field allows up to 9999
 DEFAULT_CHUNK_SIZE = 100
 
 
@@ -48,7 +49,7 @@ def generate_packet_header(packet_number: int, packet_data: str) -> str:
 
     The header format is::
 
-        <5-digit packet number><8-digit CRC32 hex><3-digit length>@
+        <5-digit packet number><8-digit CRC32 hex><4-digit length>@
 
     Args:
         packet_number: Zero-based index of the packet.
@@ -59,7 +60,7 @@ def generate_packet_header(packet_number: int, packet_data: str) -> str:
     """
     checksum = calculate_crc32(packet_data)
     packet_length = len(packet_data)
-    return f"{packet_number:05d}{checksum:08X}{packet_length:03d}@"
+    return f"{packet_number:05d}{checksum:08X}{packet_length:04d}@"
 
 
 def create_packet(packet_number: int, packet_data: str, total_packets: int) -> str:
@@ -159,12 +160,14 @@ def save_packets_to_files(
     packet_index = 0
     for i in range(0, len(all_hex_values), packet_size):
         packet_data = "".join(all_hex_values[i : i + packet_size])
+        pixel_count = len(all_hex_values[i : i + packet_size])
+        byte_count = pixel_count * 6
         packet = create_packet(packet_index, packet_data, total_packets)
         packet_file_path = output_folder_path / f"{gif_base_name}_packet_{packet_index:0{PACKET_FILE_DIGITS}d}.txt"
         packet_file_path.write_text(packet)
         with master_file_path.open("a") as master_file:
             master_file.write(packet)
-        print(f"Saved packet {packet_index + 1} to: {packet_file_path}")
+        print(f"Saved packet {packet_index + 1} to: {packet_file_path} ({pixel_count} pixels, {byte_count} bytes)")
         packet_index += 1
 
     return total_packets
@@ -235,7 +238,6 @@ def process_gif(gif_path: Path, output_folder_path: Path, packet_size: int) -> P
     hex_values_list: list[list[str]] = [bmp_to_hex_values(bmp_file) for bmp_file in sorted_bmps]
     master_file_path = output_folder_path / f"{gif_base_name}_processed.txt"
     total_packets = save_packets_to_files(hex_values_list, output_folder_path, gif_base_name, packet_size, master_file_path)
-    total_packets -= 1
     metadata_path = write_metadata(output_folder_path, gif_base_name, len(hex_values_list), total_packets)
     remove_remaining_files(output_folder_path, gif_base_name)
     return metadata_path

@@ -22,7 +22,7 @@ GIF file
 Each packet file contains a single line structured as:
 
 ```
-<5-digit number><8-digit CRC32 hex><3-digit length>@<hex data>![?]
+<5-digit number><8-digit CRC32 hex><4-digit length>@<hex data>!
 ```
 
 - The `?` terminator appears only on the final packet of a transmission.
